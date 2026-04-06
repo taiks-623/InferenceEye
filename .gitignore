@@ -42,3 +42,7 @@ model/models/*.pkl
 .idea/
 .vscode/
 *.swp
+
+# Tools
+.claude/
+.obsidian/
