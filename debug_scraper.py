@@ -8,7 +8,8 @@ with sync_playwright() as p:
     browser = p.firefox.launch(headless=True)
     page = browser.new_page()
     page.goto(url, timeout=60000)
-    page.wait_for_load_state("networkidle", timeout=30000)
+    page.wait_for_load_state("load", timeout=30000)
+    page.wait_for_selector("a[href*='race_id=']", timeout=15000)
     html = page.content()
     browser.close()
 

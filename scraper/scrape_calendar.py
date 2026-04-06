@@ -43,7 +43,15 @@ def fetch_race_ids_for_date(target_date: date) -> list[str]:
             browser = p.firefox.launch(headless=True)
             page = browser.new_page()
             page.goto(url, timeout=60000)
-            page.wait_for_load_state("networkidle", timeout=30000)
+            page.wait_for_load_state("load", timeout=30000)
+            # JS レンダリング完了を race_id リンクの出現で確認
+            # 非開催日はリンクが存在しないため timeout → 空リストで返す
+            try:
+                page.wait_for_selector("a[href*='race_id=']", timeout=15000)
+            except Exception:
+                # 非開催日（リンクが存在しない）
+                browser.close()
+                return []
             html = page.content()
             browser.close()
     except Exception as e:
