@@ -70,6 +70,7 @@ services:
     volumes:
       - .:/workspace
     working_dir: /workspace
+    shm_size: 2gb  # Playwright (Chromium) のクラッシュ防止
     depends_on:
       postgres:
         condition: service_healthy
