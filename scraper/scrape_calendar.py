@@ -42,7 +42,13 @@ def fetch_race_ids_for_date(target_date: date) -> list[str]:
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=["--no-sandbox", "--disable-dev-shm-usage"],
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--no-zygote",
+                ],
             )
             page = browser.new_page()
             page.goto(url, timeout=30000)
