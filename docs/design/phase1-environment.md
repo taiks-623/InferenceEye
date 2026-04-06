@@ -247,6 +247,16 @@ anthropic==0.50.0
 # Discord
 discord.py==2.4.0
 
+# 可視化・分析
+matplotlib==3.10.1
+seaborn==0.13.2
+japanize-matplotlib==1.1.3  # matplotlib で日本語フォントを使えるようにする
+shap==0.47.2                 # 特徴量 importance の可視化（SHAP 値）
+
+# Jupyter
+jupyter==1.1.1
+ipykernel==6.29.5
+
 # 開発・テスト
 ruff==0.11.2
 pytest==8.3.5
@@ -373,6 +383,29 @@ docker compose exec postgres psql -U postgres -d inferenceeye
 ### Step 5: MLflow UI 確認
 
 ブラウザで `http://localhost:5001` を開き、MLflow の画面が表示されればOK。
+
+### Step 5.5: Jupyter Notebook を開く
+
+ブラウザで `http://localhost:8888` を開く（パスワード不要）。
+
+Notebook 内から DB・MLflow に接続する場合はコンテナ内部のアドレスを使う：
+
+```python
+import os
+import psycopg2
+import mlflow
+
+# PostgreSQL 接続（DATABASE_URL 環境変数が自動で設定されている）
+conn = psycopg2.connect(os.environ["DATABASE_URL"])
+
+# MLflow（コンテナ間通信はポート 5000 を使う）
+mlflow.set_tracking_uri("http://mlflow:5000")
+
+with mlflow.start_run(run_name="notebook_test"):
+    mlflow.log_param("test", "ok")
+```
+
+> **注意:** ブラウザからは `http://localhost:5001` だが、コンテナ内部からは `http://mlflow:5000`（内部ポート）を使う。
 
 ### Step 6: Python から動作確認
 
