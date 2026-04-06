@@ -398,8 +398,48 @@ EOF
 
 ---
 
-## 11. 関連ドキュメント
+## 11. データ置き場について
+
+### 現在の構成（ローカル）
+
+データは Docker Volume でローカルマシン上に永続化する。
+
+```
+Docker Volume: postgres_data
+  → /var/lib/docker/volumes/inferenceeye_postgres_data/
+```
+
+コンテナを削除（`docker compose down`）してもデータは残る。
+ボリュームごと削除する場合は `docker compose down -v`（注意: データ全消去）。
+
+### データ規模の見込み
+
+| テーブル | 想定行数（10年分） |
+|---------|----------------|
+| races | 約 120,000 行 |
+| entries / results | 約 180万 行 |
+| odds | 約 2,000万 行（毎分取得のため） |
+| training_times | 約 300万 行 |
+
+合計数 GB 程度。ローカルの PostgreSQL で十分に扱える規模。
+
+### クラウド移行の可能性
+
+当面はローカルで運用する。将来的に移行が必要になった場合：
+
+| クラウド | DB | スクレイパー実行環境 |
+|---------|----|----------------|
+| AWS | RDS (PostgreSQL) | EC2 |
+| GCP | Cloud SQL | Cloud Run / GCE |
+
+`DATABASE_URL` を環境変数で管理しているため、
+移行時は `.env` の接続先を変えるだけで対応できる設計になっている。
+
+---
+
+## 12. 関連ドキュメント
 
 - `InferenceEye_design.md` — 全体設計（ローカルのみ）
+- [DB スキーマ定義書・ER 図](./db-schema.md) — テーブル定義・依存関係
 - `docs/decisions/001-docker-compose.md` — Docker Compose を選んだ理由（作業中に作成）
 - `notes/learnings/docker.md` — 作業中に学んだことを記録
