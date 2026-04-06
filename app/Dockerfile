@@ -29,6 +29,7 @@ RUN apt-get update \
         libxfixes3 \
         libxrandr2 \
         libgbm1 \
+        libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN playwright install chromium
