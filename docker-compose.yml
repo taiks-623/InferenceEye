@@ -35,6 +35,29 @@ services:
       --host 0.0.0.0
       --port 5000
 
+  jupyter:
+    build: ./app
+    ports:
+      - "8888:8888"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      jupyter notebook
+      --ip=0.0.0.0
+      --port=8888
+      --no-browser
+      --allow-root
+      --NotebookApp.token=''
+      --NotebookApp.password=''
+
   app:
     build: ./app
     environment:
