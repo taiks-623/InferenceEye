@@ -123,6 +123,70 @@ def insert_entry(conn, entry: dict) -> None:
         )
 
 
+def upsert_entry(conn, entry: dict) -> None:
+    """entries テーブルに upsert する（出馬表取得時に使用）。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO entries (
+                race_id, horse_num, gate_num, horse_id, jockey_id, trainer_id,
+                burden_weight, horse_weight, weight_diff, scratch
+            )
+            VALUES (
+                %(race_id)s, %(horse_num)s, %(gate_num)s, %(horse_id)s, %(jockey_id)s, %(trainer_id)s,
+                %(burden_weight)s, %(horse_weight)s, %(weight_diff)s, %(scratch)s
+            )
+            ON CONFLICT (race_id, horse_num) DO UPDATE SET
+                gate_num = EXCLUDED.gate_num,
+                horse_id = EXCLUDED.horse_id,
+                jockey_id = EXCLUDED.jockey_id,
+                trainer_id = EXCLUDED.trainer_id,
+                burden_weight = EXCLUDED.burden_weight,
+                scratch = EXCLUDED.scratch
+            """,
+            entry,
+        )
+
+
+def upsert_training_time(conn, training: dict) -> None:
+    """training_times テーブルに upsert する。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO training_times (
+                horse_id, training_date, venue_code, course_type,
+                time_4f, time_3f, time_1f, rank, jockey_rider, note
+            )
+            VALUES (
+                %(horse_id)s, %(training_date)s, %(venue_code)s, %(course_type)s,
+                %(time_4f)s, %(time_3f)s, %(time_1f)s, %(rank)s, %(jockey_rider)s, %(note)s
+            )
+            ON CONFLICT (horse_id, training_date, course_type) DO UPDATE SET
+                venue_code = EXCLUDED.venue_code,
+                time_4f = EXCLUDED.time_4f,
+                time_3f = EXCLUDED.time_3f,
+                time_1f = EXCLUDED.time_1f,
+                rank = EXCLUDED.rank,
+                jockey_rider = EXCLUDED.jockey_rider,
+                note = EXCLUDED.note
+            """,
+            training,
+        )
+
+
+def insert_odds(conn, odds: dict) -> None:
+    """odds テーブルに INSERT する（fetched_at ごとにスナップショット保存）。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO odds (race_id, horse_num, odds_type, odds_low, odds_high, fetched_at)
+            VALUES (%(race_id)s, %(horse_num)s, %(odds_type)s, %(odds_low)s, %(odds_high)s, %(fetched_at)s)
+            ON CONFLICT (race_id, horse_num, odds_type, fetched_at) DO NOTHING
+            """,
+            odds,
+        )
+
+
 def insert_result(conn, result: dict) -> None:
     with conn.cursor() as cur:
         cur.execute(

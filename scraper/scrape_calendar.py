@@ -19,8 +19,6 @@ import logging
 import re
 from datetime import date
 
-from playwright.sync_api import sync_playwright
-
 from scraper.db import get_conn, upsert_race_calendar
 from scraper.utils import date_range, parse_html
 
@@ -39,6 +37,8 @@ def fetch_race_ids_for_date(target_date: date) -> list[str]:
     url = RACE_LIST_URL.format(date=date_str)
 
     try:
+        from playwright.sync_api import sync_playwright
+
         with sync_playwright() as p:
             browser = p.firefox.launch(headless=True)
             page = browser.new_page()
