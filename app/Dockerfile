@@ -11,9 +11,8 @@ WORKDIR /workspace
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Chromium の実行に必要なシステムライブラリを明示的にインストール
-# --with-deps は ARM (Apple Silicon) 環境で fonts-unifont が見つからず失敗するため使わない
-# フォントパッケージはスクレイピング用途では不要
+# Firefox のシステムライブラリをインストール
+# Chromium は ARM Docker 環境でクラッシュしやすいため Firefox を使用
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libnss3 \
@@ -30,6 +29,9 @@ RUN apt-get update \
         libxrandr2 \
         libgbm1 \
         libasound2 \
+        libgtk-3-0 \
+        libx11-xcb1 \
+        libxt6 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN playwright install chromium
+RUN playwright install firefox

@@ -5,16 +5,7 @@ from scraper.utils import parse_html
 url = "https://race.netkeiba.com/top/race_list.html?kaisai_date=20260405"
 
 with sync_playwright() as p:
-    browser = p.chromium.launch(
-        headless=True,
-        args=[
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-            "--no-zygote",
-        ],
-    )
+    browser = p.firefox.launch(headless=True)
     page = browser.new_page()
     page.goto(url, timeout=30000)
     page.wait_for_load_state("networkidle", timeout=15000)
