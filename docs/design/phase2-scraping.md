@@ -246,10 +246,13 @@ from playwright.sync_api import sync_playwright
 
 def fetch_odds(race_id: str) -> list[dict]:
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        # Chromium は ARM Docker で不安定なため Firefox を使用
+        browser = p.firefox.launch(headless=True)
         page = browser.new_page()
-        page.goto(f"https://race.netkeiba.com/odds/index.html?type=b1&race_id={race_id}")
-        page.wait_for_load_state("networkidle")  # JS 描画を待つ
+        page.goto(f"https://race.netkeiba.com/odds/index.html?type=b1&race_id={race_id}", timeout=60000)
+        page.wait_for_load_state("load", timeout=30000)
+        # networkidle は広告リクエストで達成されないため selector wait を使う
+        page.wait_for_selector("[data-odds]", timeout=15000)
         # ... HTML を取得して BeautifulSoup でパース
         browser.close()
 ```

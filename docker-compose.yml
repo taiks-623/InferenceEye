@@ -43,6 +43,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       MLFLOW_TRACKING_URI: http://mlflow:5000
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      PYTHONPATH: /workspace
     volumes:
       - .:/workspace
     working_dir: /workspace
@@ -65,9 +66,11 @@ services:
       MLFLOW_TRACKING_URI: http://mlflow:5000
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      PYTHONPATH: /workspace
     volumes:
       - .:/workspace
     working_dir: /workspace
+    shm_size: 2gb  # Playwright (Chromium) のクラッシュ防止
     depends_on:
       postgres:
         condition: service_healthy
