@@ -1,6 +1,6 @@
 """scrape_odds.py のユニットテスト"""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from bs4 import BeautifulSoup
 
@@ -22,7 +22,7 @@ def _make_odds_html(table_id: str, rows: list[str]) -> str:
     """
 
 
-FETCHED_AT = datetime(2026, 4, 5, 9, 0, 0, tzinfo=timezone.utc)
+FETCHED_AT = datetime(2026, 4, 5, 9, 0, 0, tzinfo=UTC)
 
 
 def test_parse_win_odds_basic():
