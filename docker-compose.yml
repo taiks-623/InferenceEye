@@ -17,7 +17,7 @@ services:
       retries: 5
 
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.19.0
+    build: ./mlflow  # psycopg2 を追加した独自イメージ
     ports:
       - "5001:5000"  # macOS AirPlay が 5000 を使用するため 5001 にマッピング
     environment:
