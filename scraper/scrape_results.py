@@ -177,6 +177,14 @@ def parse_race_info(soup, race_id: str, held_date: date) -> dict | None:
                 race["sex_cond"] = text
             if any(kw in text for kw in ["馬齢", "ハンデ", "別定", "定量"]):
                 race["weight_type"] = text
+            # 頭数（例: "18頭"）
+            m = re.search(r"(\d+)頭", text)
+            if m:
+                race["num_horses"] = int(m.group(1))
+            # 1着賞金（例: "本賞金:590,240,150,89,59万円" → 590万円）
+            m = re.search(r"本賞金[：:](\d+)", text)
+            if m:
+                race["prize_1st"] = int(m.group(1))
 
     return race
 

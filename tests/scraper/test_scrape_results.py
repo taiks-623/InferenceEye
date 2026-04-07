@@ -88,6 +88,29 @@ def test_parse_race_info_track_cond_fullwidth_colon():
     assert race["weather"] == "曇"
 
 
+def test_parse_race_info_num_horses_and_prize():
+    """頭数と1着賞金を RaceData02 からパースできる。"""
+    html = """
+    <html><body>
+    <div class="RaceData01">
+      09:00 / <span>芝2000m</span>(右) / 天候:晴 / 馬場:良
+    </div>
+    <div class="RaceData02">
+      <span>4歳以上</span>
+      <span>オープン</span>
+      <span>18頭</span>
+      <span>本賞金:590,240,150,89,59万円</span>
+    </div>
+    </body></html>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    race = parse_race_info(soup, "202606030401", date(2026, 6, 3))
+    assert race is not None
+    assert race["num_horses"] == 18
+    assert race["prize_1st"] == 590
+    assert race["race_class"] == "オープン"
+
+
 def _make_result_table(rows_html: str) -> BeautifulSoup:
     html = f"""
     <html><body>
