@@ -124,38 +124,42 @@ def parse_race_info(soup, race_id: str, held_date: date) -> dict | None:
     if name_tag:
         race["race_name"] = name_tag.get_text(strip=True)
 
-    # コース・距離・方向（例: 芝1600m（右））
+    # コース・距離・方向
     course_tag = soup.select_one(".RaceData01")
     if course_tag:
-        spans = course_tag.find_all("span")
-        for span in spans:
-            text = span.get_text(strip=True)
-            course_type, distance, direction = parse_distance_and_course(text)
-            if course_type is None and distance is None:
-                continue
-            # 障害は None が返るので除外
-            if course_type is None and "障" in text:
-                logger.debug("Skip obstacle race: %s", race_id)
-                return None
-            race["course_type"] = course_type
-            race["distance"] = distance
-            race["direction"] = direction
-            break
+        full_text = course_tag.get_text()
 
-    # 馬場状態・天気（例: 天候:晴 芝:良）
-    data_tag = soup.select_one(".RaceData01")
-    if data_tag:
-        text = data_tag.get_text()
-        # 天候
-        m = re.search(r"天候:(\S+)", text)
+        # 障害レース判定
+        if "障" in full_text:
+            logger.debug("Skip obstacle race: %s", race_id)
+            return None
+
+        # コース種別・距離（スパンテキストから取得）
+        for span in course_tag.find_all("span"):
+            text = span.get_text(strip=True)
+            course_type, distance, _ = parse_distance_and_course(text)
+            if course_type is not None or distance is not None:
+                race["course_type"] = course_type
+                race["distance"] = distance
+                break
+
+        # 方向：(右) / (左) / (直線) は span 外のテキストにあることがあるため全文検索
+        if "右" in full_text:
+            race["direction"] = "右"
+        elif "左" in full_text:
+            race["direction"] = "左"
+        elif "直線" in full_text:
+            race["direction"] = "直線"
+
+        # 天候：天候:晴 または 天候：晴
+        m = re.search(r"天候[：:]\s*(\S+)", full_text)
         if m:
             race["weather"] = m.group(1)
-        # 馬場状態
-        for keyword in ["芝:", "ダ:"]:
-            m = re.search(rf"{keyword}(\S+)", text)
-            if m:
-                race["track_cond"] = m.group(1)
-                break
+
+        # 馬場状態：馬場:良 または 馬場：良
+        m = re.search(r"馬場[：:]\s*(\S+)", full_text)
+        if m:
+            race["track_cond"] = m.group(1)
 
     # クラス・条件（RaceData02 に含まれることが多い）
     data2_tag = soup.select_one(".RaceData02")
@@ -173,6 +177,14 @@ def parse_race_info(soup, race_id: str, held_date: date) -> dict | None:
                 race["sex_cond"] = text
             if any(kw in text for kw in ["馬齢", "ハンデ", "別定", "定量"]):
                 race["weight_type"] = text
+            # 頭数（例: "18頭"）
+            m = re.search(r"(\d+)頭", text)
+            if m:
+                race["num_horses"] = int(m.group(1))
+            # 1着賞金（例: "本賞金:590,240,150,89,59万円" → 590万円）
+            m = re.search(r"本賞金[：:](\d+)", text)
+            if m:
+                race["prize_1st"] = int(m.group(1))
 
     return race
 
@@ -214,24 +226,29 @@ def parse_entries_and_results(soup, race_id: str) -> tuple[list[dict], list[dict
                     horse_id = m.group(1)
 
             # 騎手 ID（騎手名リンクから取得）
+            # URL 例: https://db.netkeiba.com/jockey/result/recent/01217/
+            # 末尾の数値を ID として使用
             jockey_link = cols[6].select_one("a[href*='/jockey/']")
             jockey_id = None
-            jockey_name = cols[6].get_text(strip=True)
+            jockey_name = None
             if jockey_link:
                 href = jockey_link.get("href", "")
-                m = re.search(r"/jockey/(\w+)", href)
+                m = re.search(r"/(\d+)/?$", href)
                 if m:
                     jockey_id = m.group(1)
+                jockey_name = jockey_link.get_text(strip=True) or cols[6].get_text(strip=True)
 
-            # 調教師 ID
-            trainer_link = cols[18].select_one("a[href*='/trainer/']") if len(cols) > 18 else None
+            # 調教師 ID（col[13]）
+            # URL 例: https://db.netkeiba.com/trainer/result/01924/
+            trainer_link = cols[13].select_one("a[href*='/trainer/']") if len(cols) > 13 else None
             trainer_id = None
-            trainer_name = cols[18].get_text(strip=True) if len(cols) > 18 else None
+            trainer_name = None
             if trainer_link:
                 href = trainer_link.get("href", "")
-                m = re.search(r"/trainer/(\w+)", href)
+                m = re.search(r"/(\d+)/?$", href)
                 if m:
                     trainer_id = m.group(1)
+                trainer_name = trainer_link.get_text(strip=True) or cols[13].get_text(strip=True)
 
             # 馬体重と増減（例: "450(-2)"）
             weight_text = cols[14].get_text(strip=True) if len(cols) > 14 else ""
@@ -274,10 +291,10 @@ def parse_entries_and_results(soup, race_id: str) -> tuple[list[dict], list[dict
                 "finish_status": finish_status,
                 "time_sec": parse_time_sec(cols[7].get_text(strip=True)) if len(cols) > 7 else None,
                 "margin": cols[8].get_text(strip=True) if len(cols) > 8 else None,
-                "passing_order": cols[10].get_text(strip=True) if len(cols) > 10 else None,
+                "popularity": parse_int(cols[9].get_text(strip=True)) if len(cols) > 9 else None,
+                "win_odds": parse_float(cols[10].get_text(strip=True)) if len(cols) > 10 else None,
                 "last_3f": parse_float(cols[11].get_text(strip=True)) if len(cols) > 11 else None,
-                "win_odds": parse_float(cols[12].get_text(strip=True)) if len(cols) > 12 else None,
-                "popularity": parse_int(cols[13].get_text(strip=True)) if len(cols) > 13 else None,
+                "passing_order": cols[12].get_text(strip=True) if len(cols) > 12 else None,
             }
 
             entries.append(entry)
@@ -326,21 +343,27 @@ def scrape_one_race(race_id: str, held_date: date) -> None:
                 cols = row.find_all("td")
                 if len(cols) < 7:
                     continue
-                # 騎手
+                # 騎手（URL末尾の数値を ID として使用）
                 jockey_link = cols[6].select_one("a[href*='/jockey/']")
                 if jockey_link:
                     href = jockey_link.get("href", "")
-                    m = re.search(r"/jockey/(\w+)", href)
+                    m = re.search(r"/(\d+)/?$", href)
                     if m:
-                        upsert_jockey(conn, m.group(1), cols[6].get_text(strip=True), None)
-                # 調教師
-                if len(cols) > 18:
-                    trainer_link = cols[18].select_one("a[href*='/trainer/']")
+                        jockey_name = jockey_link.get_text(strip=True) or cols[6].get_text(
+                            strip=True
+                        )
+                        upsert_jockey(conn, m.group(1), jockey_name, None)
+                # 調教師（col[13]）
+                if len(cols) > 13:
+                    trainer_link = cols[13].select_one("a[href*='/trainer/']")
                     if trainer_link:
                         href = trainer_link.get("href", "")
-                        m = re.search(r"/trainer/(\w+)", href)
+                        m = re.search(r"/(\d+)/?$", href)
                         if m:
-                            upsert_trainer(conn, m.group(1), cols[18].get_text(strip=True), None)
+                            trainer_name = trainer_link.get_text(strip=True) or cols[13].get_text(
+                                strip=True
+                            )
+                            upsert_trainer(conn, m.group(1), trainer_name, None)
                 # 馬（最低限の情報で INSERT、詳細は別途取得）
                 horse_link = cols[3].select_one("a[href*='/horse/']") if len(cols) > 3 else None
                 if horse_link:

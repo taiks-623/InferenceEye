@@ -147,14 +147,16 @@ race_exists(conn, race_id)
   └─ 既存なら即スキップ（冪等性の確保）
        ↓
 parse_race_info(soup, race_id, held_date)
-  ├─ レース名、コース種別、距離、方向、馬場状態、天気、クラス等を抽出
+  ├─ RaceData01: コース種別・距離（spanから）、方向（全文検索）、天候・馬場（全角/半角コロン両対応）
+  ├─ RaceData02: race_class / age_cond / sex_cond / weight_type / num_horses / prize_1st
   └─ 障害レースは None を返してスキップ
        ↓
 insert_race(conn, race)
        ↓
 parse_entries_and_results(soup, race_id)
-  ├─ 結果テーブルの各行をパース
-  ├─ 着順、馬番、枠番、騎手ID、調教師ID、馬体重、タイム、上がり等を抽出
+  ├─ 結果テーブル（15列）の各行をパース
+  ├─ 着順・馬番・枠番・騎手ID・調教師ID・馬体重・タイム・人気・単勝オッズ・上がり・通過順を抽出
+  ├─ 騎手/調教師IDはURLの末尾数値から取得: r"/(\d+)/?$"
   └─ entries と results のリストを返す
        ↓
 【FK 制約の順番を守った保存】
@@ -164,6 +166,26 @@ upsert_horse()    ← entries より先に保存（外部キー）
 insert_entry()
 insert_result()
 ```
+
+#### 結果テーブルの列構成（15列）
+
+| col | 内容 | 備考 |
+|-----|------|------|
+| 0 | 着順 | 「取消」「除外」等の文字列もある |
+| 1 | 枠番 | |
+| 2 | 馬番 | |
+| 3 | 馬名 | href: `/horse/{horse_id}/` |
+| 4 | 性齢 | |
+| 5 | 斤量 | |
+| 6 | 騎手 | href: `/jockey/result/recent/{id}/` |
+| 7 | タイム | `"1:23.4"` 形式 |
+| 8 | 着差 | |
+| 9 | 人気 | |
+| 10 | 単勝オッズ | class="Odds Txt_R", span class="Odds_Ninki" |
+| 11 | 上がり3F | |
+| 12 | コーナー通過順 | |
+| 13 | 調教師 | href: `/trainer/result/{id}/` |
+| 14 | 馬体重 | `"450(-2)"` 形式 |
 
 > **外部キー制約の順番が重要**  
 > `entries` テーブルは `horses`, `jockeys`, `trainers` を参照している。これらを `entries` より先に保存しないと外部キー違反エラーになる。
