@@ -117,6 +117,19 @@ def _get_feature_cols(df: pd.DataFrame) -> list[str]:
     return [c for c in FEATURE_COLS if c in df.columns]
 
 
+def _coerce_feature_dtypes(df: pd.DataFrame, feat_cols: list[str]) -> pd.DataFrame:
+    """LightGBM に渡す前に特徴量カラムの dtype を修正する。
+
+    - venue_code: DB では text 型（"01" 等）のため int に変換
+    - その他の特徴量: NULL 混じりで object になる場合があるため float に変換
+    """
+    df = df.copy()
+    for col in feat_cols:
+        if col in df.columns and df[col].dtype == object:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
 def _train_model(
     X_train: pd.DataFrame,
     y_train: pd.Series,
@@ -171,7 +184,7 @@ def walk_forward_validation(
     feat_cols = _get_feature_cols(df)
     cat_cols = [c for c in CATEGORICAL_COLS if c in feat_cols]
 
-    df = df.copy()
+    df = _coerce_feature_dtypes(df, feat_cols)
     df["held_year"] = pd.to_datetime(df["held_date"]).dt.year
 
     for val_year in range(val_start, val_end + 1):
@@ -281,6 +294,7 @@ def train_final_model(df: pd.DataFrame) -> tuple:
     feat_cols = _get_feature_cols(df)
     cat_cols = [c for c in CATEGORICAL_COLS if c in feat_cols]
 
+    df = _coerce_feature_dtypes(df, feat_cols)
     df = df[df["win_label"].notna() & df["place_label"].notna()].copy()
     df["held_year"] = pd.to_datetime(df["held_date"]).dt.year
     max_year = df["held_year"].max()
