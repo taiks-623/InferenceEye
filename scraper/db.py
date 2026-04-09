@@ -67,6 +67,42 @@ def upsert_trainer(conn, trainer_id: str, trainer_name: str, belong_to: str | No
         )
 
 
+def update_jockey_belong_to(conn, jockey_id: str, belong_to: str) -> None:
+    """騎手の所属を更新する。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE jockeys SET belong_to = %s WHERE jockey_id = %s",
+            (belong_to, jockey_id),
+        )
+
+
+def update_trainer_belong_to(conn, trainer_id: str, belong_to: str) -> None:
+    """調教師の所属を更新する。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE trainers SET belong_to = %s WHERE trainer_id = %s",
+            (belong_to, trainer_id),
+        )
+
+
+def get_jockeys_without_belong_to(conn) -> list[tuple[str, str]]:
+    """belong_to が NULL の騎手一覧を返す。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT jockey_id, jockey_name FROM jockeys WHERE belong_to IS NULL ORDER BY jockey_id"
+        )
+        return cur.fetchall()
+
+
+def get_trainers_without_belong_to(conn) -> list[tuple[str, str]]:
+    """belong_to が NULL の調教師一覧を返す。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT trainer_id, trainer_name FROM trainers WHERE belong_to IS NULL ORDER BY trainer_id"
+        )
+        return cur.fetchall()
+
+
 def upsert_horse(conn, horse: dict) -> None:
     with conn.cursor() as cur:
         cur.execute(
