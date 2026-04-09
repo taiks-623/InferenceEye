@@ -317,39 +317,49 @@ def parse_entries_and_results(soup, race_id: str) -> tuple[list[dict], list[dict
 def parse_place_payouts(soup) -> dict[int, float]:
     """払戻テーブルから複勝配当を取得し {horse_num: place_odds} を返す。
 
-    netkeiba の払戻テーブル（.PayTable）から複勝行を探し、
+    netkeiba の払戻テーブル（tr.Fukusho）から複勝行を探し、
     馬番と配当（100円あたり）を取得する。
+
+    HTML 構造:
+        <tr class="Fukusho">
+          <th>複勝</th>
+          <td class="Result"><div><span>6</span></div>...</td>
+          <td class="Payout"><span>1,560円<br/>910円<br/>480円</span></td>
+        </tr>
     """
     payouts: dict[int, float] = {}
 
-    pay_table = soup.select_one(".PayTable")
-    if not pay_table:
+    row = soup.select_one("tr.Fukusho")
+    if not row:
         return payouts
 
-    in_place = False
-    for row in pay_table.select("tr"):
-        cells = row.find_all(["th", "td"])
-        if not cells:
-            continue
+    # 馬番: Result td 内の div > span で数字のもの
+    result_td = row.select_one("td.Result")
+    horse_nums = []
+    if result_td:
+        for div in result_td.find_all("div"):
+            span = div.find("span")
+            if span:
+                num = parse_int(span.get_text(strip=True))
+                if num is not None:
+                    horse_nums.append(num)
 
-        header_text = cells[0].get_text(strip=True)
-        if "複勝" in header_text:
-            in_place = True
+    # 配当: Payout td 内の span テキストを <br> で分割
+    payout_td = row.select_one("td.Payout")
+    payout_amounts = []
+    if payout_td:
+        span = payout_td.find("span")
+        if span:
+            for br in span.find_all("br"):
+                br.replace_with("\n")
+            for line in span.get_text().split("\n"):
+                cleaned = line.strip().replace(",", "").replace("円", "")
+                amount = parse_int(cleaned)
+                if amount is not None:
+                    payout_amounts.append(amount)
 
-        if in_place:
-            # 複勝の行は th=複勝 or 空、td[0]=馬番, td[1]=配当
-            # 行の <th> が空（続き行）または "複勝" の場合を処理
-            if header_text and "複勝" not in header_text and cells[0].name == "th":
-                break  # 次の券種に移った
-
-            tds = row.find_all("td")
-            if len(tds) >= 2:
-                horse_num = parse_int(tds[0].get_text(strip=True))
-                # 配当は "1,340円" 形式 → 13.40 倍（100円基準）
-                payout_text = tds[1].get_text(strip=True).replace(",", "").replace("円", "")
-                payout_yen = parse_int(payout_text)
-                if horse_num and payout_yen:
-                    payouts[horse_num] = round(payout_yen / 100, 1)
+    for horse_num, payout_yen in zip(horse_nums, payout_amounts, strict=False):
+        payouts[horse_num] = round(payout_yen / 100, 1)
 
     return payouts
 
