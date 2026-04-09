@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS results (
     passing_order  TEXT,   -- "3-3-2-1" 形式
     last_3f        FLOAT,
     win_odds       FLOAT,
+    place_odds     FLOAT,
     popularity     INT,
     PRIMARY KEY (race_id, horse_num),
     FOREIGN KEY (race_id, horse_num) REFERENCES entries(race_id, horse_num)

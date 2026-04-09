@@ -239,9 +239,9 @@ def walk_forward_validation(
         win_auc = roc_auc_score(val_df["win_label"], val_df["win_proba_raw"])
         place_auc = roc_auc_score(val_df["place_label"], val_df["place_proba_raw"])
 
-        # 回収率（results.win_odds を使用）
+        # 回収率
         win_recovery = compute_recovery_rate(val_df, "win_proba", "win_odds", "win_label")
-        place_recovery = compute_recovery_rate(val_df, "place_proba", "win_odds", "place_label")
+        place_recovery = compute_recovery_rate(val_df, "place_proba", "place_odds", "place_label")
 
         step = {
             "val_year": val_year,

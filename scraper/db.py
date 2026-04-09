@@ -229,11 +229,11 @@ def insert_result(conn, result: dict) -> None:
             """
             INSERT INTO results (
                 race_id, horse_num, finish_pos, finish_status,
-                time_sec, margin, passing_order, last_3f, win_odds, popularity
+                time_sec, margin, passing_order, last_3f, win_odds, place_odds, popularity
             )
             VALUES (
                 %(race_id)s, %(horse_num)s, %(finish_pos)s, %(finish_status)s,
-                %(time_sec)s, %(margin)s, %(passing_order)s, %(last_3f)s, %(win_odds)s, %(popularity)s
+                %(time_sec)s, %(margin)s, %(passing_order)s, %(last_3f)s, %(win_odds)s, %(place_odds)s, %(popularity)s
             )
             ON CONFLICT (race_id, horse_num) DO NOTHING
             """,
