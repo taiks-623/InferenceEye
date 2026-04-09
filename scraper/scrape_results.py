@@ -293,6 +293,7 @@ def parse_entries_and_results(soup, race_id: str) -> tuple[list[dict], list[dict
                 "margin": cols[8].get_text(strip=True) if len(cols) > 8 else None,
                 "popularity": parse_int(cols[9].get_text(strip=True)) if len(cols) > 9 else None,
                 "win_odds": parse_float(cols[10].get_text(strip=True)) if len(cols) > 10 else None,
+                "place_odds": None,  # 払戻テーブルから別途取得
                 "last_3f": parse_float(cols[11].get_text(strip=True)) if len(cols) > 11 else None,
                 "passing_order": cols[12].get_text(strip=True) if len(cols) > 12 else None,
             }
@@ -311,6 +312,46 @@ def parse_entries_and_results(soup, race_id: str) -> tuple[list[dict], list[dict
             continue
 
     return entries, results
+
+
+def parse_place_payouts(soup) -> dict[int, float]:
+    """払戻テーブルから複勝配当を取得し {horse_num: place_odds} を返す。
+
+    netkeiba の払戻テーブル（.PayTable）から複勝行を探し、
+    馬番と配当（100円あたり）を取得する。
+    """
+    payouts: dict[int, float] = {}
+
+    pay_table = soup.select_one(".PayTable")
+    if not pay_table:
+        return payouts
+
+    in_place = False
+    for row in pay_table.select("tr"):
+        cells = row.find_all(["th", "td"])
+        if not cells:
+            continue
+
+        header_text = cells[0].get_text(strip=True)
+        if "複勝" in header_text:
+            in_place = True
+
+        if in_place:
+            # 複勝の行は th=複勝 or 空、td[0]=馬番, td[1]=配当
+            # 行の <th> が空（続き行）または "複勝" の場合を処理
+            if header_text and "複勝" not in header_text and cells[0].name == "th":
+                break  # 次の券種に移った
+
+            tds = row.find_all("td")
+            if len(tds) >= 2:
+                horse_num = parse_int(tds[0].get_text(strip=True))
+                # 配当は "1,340円" 形式 → 13.40 倍（100円基準）
+                payout_text = tds[1].get_text(strip=True).replace(",", "").replace("円", "")
+                payout_yen = parse_int(payout_text)
+                if horse_num and payout_yen:
+                    payouts[horse_num] = round(payout_yen / 100, 1)
+
+    return payouts
 
 
 def scrape_one_race(race_id: str, held_date: date) -> None:
@@ -335,6 +376,11 @@ def scrape_one_race(race_id: str, held_date: date) -> None:
 
         # エントリー・結果のパース
         entries, results = parse_entries_and_results(soup, race_id)
+
+        # 複勝配当を各 result に付加
+        place_payouts = parse_place_payouts(soup)
+        for r in results:
+            r["place_odds"] = place_payouts.get(r["horse_num"])
 
         # 騎手・調教師・馬の保存（外部キー制約があるため entries より先に）
         table = soup.select_one(".ResultTableWrap table") or soup.select_one("table.RaceTable_01")
