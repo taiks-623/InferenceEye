@@ -182,6 +182,7 @@ SELECT
     MAX(CASE WHEN rn = 1 THEN finish_pos END)                            AS last_race_finish,
     MAX(CASE WHEN rn = 1 THEN held_date END)                             AS last_race_date,
     MAX(CASE WHEN rn = 1 THEN race_class END)                            AS last_race_class,
+    MAX(CASE WHEN rn = 1 THEN distance END)                              AS last_race_distance,
     -- 直近5走の上がり3F平均
     AVG(CASE WHEN rn <= 5 AND last_3f IS NOT NULL THEN last_3f END)     AS avg_last3f_recent5
 FROM horse_races
@@ -333,6 +334,8 @@ def _build_features_for_batch(
     base_df["weight_type_enc"] = base_df["weight_type"].map(WEIGHT_TYPE_MAP)
     base_df["race_class_rank"] = base_df["race_class"].apply(_map_race_class)
     base_df["month"] = pd.to_datetime(base_df["held_date"]).dt.month
+    avg_burden = base_df.groupby("race_id")["burden_weight"].transform("mean")
+    base_df["burden_weight_diff"] = base_df["burden_weight"] - avg_burden
 
     # --- 馬の過去成績（レースごとにグループ化して一括取得）---
     # レースごとに current_date が異なるため、日付でグループ化
@@ -404,6 +407,9 @@ def _build_features_for_batch(
             right_on=["horse_id", "_held_date"],
             how="left",
         ).drop(columns=["_held_date"], errors="ignore")
+
+        base_df["prev_distance_diff"] = base_df["distance"] - base_df["last_race_distance"]
+        base_df["prev_class_diff"] = base_df["race_class_rank"] - base_df["last_race_class_rank"]
     else:
         for col in [
             "career_runs",
@@ -419,6 +425,8 @@ def _build_features_for_batch(
             "last_race_class_rank",
             "avg_last3f_recent5",
             "is_first_race",
+            "prev_class_diff",
+            "prev_distance_diff",
         ]:
             base_df[col] = float("nan")
 
@@ -611,6 +619,7 @@ def _build_features_for_batch(
         )
         base_df["win_label"] = (base_df["finish_pos"] == 1).astype(int)
         base_df["place_label"] = (base_df["finish_pos"] <= 3).astype(int)
+        base_df["popularity_rank"] = base_df["popularity"]
 
     return base_df
 
