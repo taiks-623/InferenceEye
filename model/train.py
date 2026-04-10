@@ -14,6 +14,7 @@
 """
 
 import argparse
+import json
 import logging
 from datetime import date, datetime
 
@@ -215,11 +216,22 @@ def walk_forward_validation(
     df: pd.DataFrame,
     val_start: int = 2020,
     val_end: int = 2024,
+    win_params: dict | None = None,
+    ev_threshold: float = 1.0,
+    feature_subset: list[str] | None = None,
 ) -> dict:
     """ウォークフォワード検証を実行し、各ステップの指標を返す。"""
     results = []
-    feat_cols = _get_feature_cols(df)
+    # 特徴量サブセット指定がある場合はそちらを優先
+    if feature_subset:
+        feat_cols = [c for c in feature_subset if c in df.columns]
+    else:
+        feat_cols = _get_feature_cols(df)
     cat_cols = [c for c in CATEGORICAL_COLS if c in feat_cols]
+
+    # パラメータ上書き
+    _win_params = {**WIN_PARAMS, **(win_params or {})}
+    _place_params = {**PLACE_PARAMS, **(win_params or {})}
 
     df = _coerce_feature_dtypes(df, feat_cols)
     df["held_year"] = pd.to_datetime(df["held_date"]).dt.year
@@ -248,12 +260,12 @@ def walk_forward_validation(
         )
 
         # 単勝モデル
-        win_model = _train_model(X_train, train_df["win_label"], WIN_PARAMS, weights, cat_cols)
+        win_model = _train_model(X_train, train_df["win_label"], _win_params, weights, cat_cols)
         val_df["win_proba_raw"] = win_model.predict(X_val)
 
         # 複勝モデル
         place_model = _train_model(
-            X_train, train_df["place_label"], PLACE_PARAMS, weights, cat_cols
+            X_train, train_df["place_label"], _place_params, weights, cat_cols
         )
         val_df["place_proba_raw"] = place_model.predict(X_val)
 
@@ -272,7 +284,9 @@ def walk_forward_validation(
         place_auc = roc_auc_score(val_df["place_label"], val_df["place_proba_raw"])
 
         # 回収率（単勝: EV閾値、複勝: 生確率閾値）
-        win_recovery = compute_recovery_rate(val_df, "win_proba", "win_odds", "win_label")
+        win_recovery = compute_recovery_rate(
+            val_df, "win_proba", "win_odds", "win_label", ev_threshold
+        )
         place_recovery = compute_place_recovery_rate(val_df, "place_proba_raw", "place_label")
 
         step = {
@@ -303,8 +317,12 @@ def walk_forward_validation(
                     "val_year": val_year,
                     "train_rows": len(train_df),
                     "num_features": len(feat_cols),
-                    "num_leaves": WIN_PARAMS["num_leaves"],
-                    "learning_rate": WIN_PARAMS["learning_rate"],
+                    "num_leaves": _win_params["num_leaves"],
+                    "learning_rate": _win_params["learning_rate"],
+                    "scale_pos_weight": _win_params.get(
+                        "scale_pos_weight", WIN_PARAMS["scale_pos_weight"]
+                    ),
+                    "ev_threshold": ev_threshold,
                 }
             )
             mlflow.log_metrics(
@@ -363,7 +381,21 @@ def main() -> None:
         "--val-start", type=int, default=2020, help="検証開始年（デフォルト: 2020）"
     )
     parser.add_argument("--val-end", type=int, default=2024, help="検証終了年（デフォルト: 2024）")
+    parser.add_argument(
+        "--win-params",
+        type=str,
+        default=None,
+        help="LightGBM パラメータ上書き（JSON文字列, 例: '{\"num_leaves\": 31}'）",
+    )
+    parser.add_argument(
+        "--ev-threshold",
+        type=float,
+        default=1.0,
+        help="単勝 EV 閾値（デフォルト: 1.0）",
+    )
     args = parser.parse_args()
+
+    win_params_override = json.loads(args.win_params) if args.win_params else None
 
     from features.feature_builder import build_training_dataset  # noqa: PLC0415
 
@@ -378,7 +410,13 @@ def main() -> None:
         import mlflow  # noqa: PLC0415
 
         with mlflow.start_run(run_name="walk_forward"):
-            summary = walk_forward_validation(df, args.val_start, args.val_end)
+            summary = walk_forward_validation(
+                df,
+                args.val_start,
+                args.val_end,
+                win_params=win_params_override,
+                ev_threshold=args.ev_threshold,
+            )
             mlflow.log_metrics(
                 {
                     "mean_win_auc": summary["mean_win_auc"],
