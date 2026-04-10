@@ -50,11 +50,14 @@ def run_shap_analysis(df, best_params: dict) -> tuple[list[dict], dict]:
     # 最後の fold のモデルで SHAP を計算
     import lightgbm as lgb  # noqa: PLC0415
 
+    from model.train import _coerce_feature_dtypes  # noqa: PLC0415
+
     feat_cols = [c for c in FEATURE_COLS if c in df.columns]
-    X = df[feat_cols].copy()
+    df_coerced = _coerce_feature_dtypes(df, feat_cols)
+    X = df_coerced[feat_cols].copy()
 
     # 全データで再学習（SHAP は全体傾向を把握するため）
-    y = df["win_label"]
+    y = df_coerced["win_label"]
     lgb_params = {**win_params, "n_estimators": 300, "random_state": 42}
     lgb_params.setdefault("verbosity", -1)
     model = lgb.LGBMClassifier(**lgb_params)
