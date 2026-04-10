@@ -63,9 +63,12 @@ FEATURE_COLS = [
     "win_rate_same_cond",
     # B2. 追加特徴量
     "popularity_rank",
+    "popularity_rank_from_odds",
     "burden_weight_diff",
+    "relative_burden_weight",
     "prev_distance_diff",
     "prev_class_diff",
+    "recent5_finish_trend",
     # C. 騎手
     "jockey_win_rate_90d",
     "jockey_place_rate_90d",

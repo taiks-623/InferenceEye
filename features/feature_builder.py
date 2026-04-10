@@ -16,6 +16,7 @@ DBに蓄積されたレース結果データから、LightGBM に投入する特
 import logging
 from datetime import date
 
+import numpy as np
 import pandas as pd
 import psycopg2
 import psycopg2.extras
@@ -53,6 +54,22 @@ def _map_race_class(race_class: str | None) -> int | None:
         if key in race_class:
             return rank
     return None
+
+
+def _calc_finish_trend(finishes) -> float | None:
+    """直近5走の着順リスト（古い順）から線形回帰の傾きを返す。
+
+    負の値 = 改善傾向（着順が小さくなっている）、正の値 = 悪化傾向。
+    データが2件未満の場合は None を返す。
+    """
+    if finishes is None:
+        return None
+    valid = [f for f in finishes if f is not None]
+    if len(valid) < 2:
+        return None
+    x = np.arange(len(valid), dtype=float)
+    y = np.array(valid, dtype=float)
+    return float(np.polyfit(x, y, 1)[0])
 
 
 def _parse_last_corner_position(passing_order: str | None) -> int | None:
@@ -185,7 +202,9 @@ SELECT
     MAX(CASE WHEN rn = 1 THEN race_class END)                            AS last_race_class,
     MAX(CASE WHEN rn = 1 THEN distance END)                              AS last_race_distance,
     -- 直近5走の上がり3F平均
-    AVG(CASE WHEN rn <= 5 AND last_3f IS NOT NULL THEN last_3f END)     AS avg_last3f_recent5
+    AVG(CASE WHEN rn <= 5 AND last_3f IS NOT NULL THEN last_3f END)     AS avg_last3f_recent5,
+    -- 直近5走の着順配列（古い順: rn=5→1）傾き計算用
+    ARRAY_AGG(finish_pos ORDER BY rn DESC) FILTER (WHERE rn <= 5)       AS recent5_finishes
 FROM horse_races
 GROUP BY horse_id
 """
@@ -337,6 +356,8 @@ def _build_features_for_batch(
     base_df["month"] = pd.to_datetime(base_df["held_date"]).dt.month
     avg_burden = base_df.groupby("race_id")["burden_weight"].transform("mean")
     base_df["burden_weight_diff"] = base_df["burden_weight"] - avg_burden
+    std_burden = base_df.groupby("race_id")["burden_weight"].transform("std").clip(lower=0.1)
+    base_df["relative_burden_weight"] = (base_df["burden_weight"] - avg_burden) / std_burden
 
     # --- 馬の過去成績（レースごとにグループ化して一括取得）---
     # レースごとに current_date が異なるため、日付でグループ化
@@ -392,6 +413,7 @@ def _build_features_for_batch(
         )
         past_all["is_first_race"] = (past_all["career_runs"] == 0).astype(int)
         past_all["last_race_class_rank"] = past_all["last_race_class"].apply(_map_race_class)
+        past_all["recent5_finish_trend"] = past_all["recent5_finishes"].apply(_calc_finish_trend)
         past_all["last_race_days"] = (
             pd.to_datetime(
                 base_df.set_index(["horse_id", "held_date"])
@@ -403,7 +425,7 @@ def _build_features_for_batch(
         ).dt.days.abs()
 
         base_df = base_df.merge(
-            past_all.drop(columns=["last_race_class"]),
+            past_all.drop(columns=["last_race_class", "recent5_finishes"]),
             left_on=["horse_id", "held_date"],
             right_on=["horse_id", "_held_date"],
             how="left",
@@ -428,6 +450,7 @@ def _build_features_for_batch(
             "is_first_race",
             "prev_class_diff",
             "prev_distance_diff",
+            "recent5_finish_trend",
         ]:
             base_df[col] = float("nan")
 
@@ -622,6 +645,9 @@ def _build_features_for_batch(
         base_df["win_label"] = (base_df["finish_pos"] == 1).astype(int)
         base_df["place_label"] = (base_df["finish_pos"] <= 3).astype(int)
         base_df["popularity_rank"] = base_df["popularity"]
+        base_df["popularity_rank_from_odds"] = base_df.groupby("race_id")["win_odds"].rank(
+            ascending=True, method="min"
+        )
 
     return base_df
 
