@@ -1,48 +1,71 @@
-"""Phase 4 AIエージェント実験ループ
+"""Phase 4 実験ループ: Optuna パラメータ最適化 + SHAP 解析 + Claude 特徴量提案
 
-Claude API が実験設定を提案 → train.py で実行 → MLflow に記録 → 繰り返す。
+フロー:
+  フェーズ A: Optuna でハイパーパラメータを最適化
+  フェーズ B: 最良パラメータで SHAP 解析
+  フェーズ C: Claude が SHAP を解釈し、新特徴量を提案
 
 実行例:
     python ai_filter/experiment_loop.py
-    python ai_filter/experiment_loop.py --max-iterations 30
+    python ai_filter/experiment_loop.py --optuna-trials 30 --max-iterations 5
 """
 
 import argparse
-import json
 import logging
 from datetime import date
 
-import mlflow
-from ai_filter.claude_agent import fetch_experiment_history, suggest_next_experiment
+from ai_filter.claude_agent import interpret_shap_and_suggest
+from ai_filter.optuna_tuner import optimize
+from ai_filter.shap_analyzer import compute_shap_summary, format_shap_for_claude
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-EXPERIMENT_NAME = "phase4_ai_loop"
+
+def run_shap_analysis(df, best_params: dict) -> tuple[list[dict], dict]:
+    """最良パラメータでモデルを学習し、SHAP サマリーと検証メトリクスを返す。
+
+    Args:
+        df: 学習データ DataFrame
+        best_params: Optuna で得た最良パラメータ（win_params + ev_threshold）
+
+    Returns:
+        (shap_summary, metrics)
+        - shap_summary: compute_shap_summary の出力（feature, mean_abs_shap, mean_shap, rank）
+        - metrics: mean_win_auc, mean_win_recovery, mean_place_recovery
+    """
+    from model.train import FEATURE_COLS, WIN_PARAMS, walk_forward_validation  # noqa: PLC0415
+
+    ev_threshold = best_params.pop("ev_threshold", 1.0)
+    win_params = {**WIN_PARAMS, **best_params}
+
+    # walk-forward で検証メトリクスを取得（最後の fold のモデルを SHAP に使う）
+    summary = walk_forward_validation(df, win_params=win_params, ev_threshold=ev_threshold)
+    metrics = {
+        "mean_win_auc": summary["mean_win_auc"],
+        "mean_win_recovery": summary["mean_win_recovery"],
+        "mean_place_recovery": summary["mean_place_recovery"],
+    }
+
+    # 最後の fold のモデルで SHAP を計算
+    import lightgbm as lgb  # noqa: PLC0415
+
+    feat_cols = [c for c in FEATURE_COLS if c in df.columns]
+    X = df[feat_cols].copy()
+
+    # 全データで再学習（SHAP は全体傾向を把握するため）
+    y = df["win_label"]
+    model = lgb.LGBMClassifier(**win_params, n_estimators=300, random_state=42, verbosity=-1)
+    model.fit(X, y)
+
+    shap_summary = compute_shap_summary(model, X)
+    return shap_summary, metrics
 
 
-def run_experiment(config: dict, df) -> dict:
-    """1回の実験を実行して結果を返す。"""
-    from model.train import walk_forward_validation  # noqa: PLC0415
-
-    win_params = config.get("win_params")
-    ev_threshold = config.get("ev_threshold", 1.0)
-    feature_subset = config.get("feature_subset")
-
-    summary = walk_forward_validation(
-        df,
-        win_params=win_params,
-        ev_threshold=ev_threshold,
-        feature_subset=feature_subset,
-    )
-    return summary
-
-
-def run_loop(max_iterations: int = 20) -> None:
-    """AIエージェント実験ループを実行する。"""
-
+def run_loop(max_iterations: int = 3, optuna_trials: int = 50) -> None:
+    """Optuna → SHAP → Claude の実験ループを実行する。"""
     from features.feature_builder import build_training_dataset  # noqa: PLC0415
-    from model.train import DATA_START  # noqa: PLC0415
+    from model.train import DATA_START, FEATURE_COLS  # noqa: PLC0415
 
     logger.info("Loading training data...")
     df = build_training_dataset(DATA_START, date.today())
@@ -51,82 +74,60 @@ def run_loop(max_iterations: int = 20) -> None:
         logger.error("No training data. Abort.")
         return
 
-    mlflow.set_experiment(EXPERIMENT_NAME)
-
-    best_recovery = float("-inf")
-    no_improve_count = 0
+    existing_features = [c for c in FEATURE_COLS if c in df.columns]
 
     for iteration in range(max_iterations):
         logger.info("=== Iteration %d / %d ===", iteration + 1, max_iterations)
 
-        # 過去の実験履歴を取得
-        history = fetch_experiment_history()
+        # フェーズ A: Optuna パラメータ最適化
+        logger.info("[Phase A] Optuna optimization (%d trials)...", optuna_trials)
+        best_params = optimize(df, n_trials=optuna_trials)
+        logger.info("Best params: %s", best_params)
 
-        # Claude に次の実験を提案させる
-        proposal = suggest_next_experiment(history, iteration)
-
-        if proposal.get("action") == "stop":
-            logger.info("Claude decided to stop: %s", proposal.get("rationale"))
-            break
-
-        config = proposal.get("config", {})
-        rationale = proposal.get("rationale", "")
-        logger.info("Rationale: %s", rationale)
-
-        # 実験実行
-        with mlflow.start_run(run_name=f"phase4_iter_{iteration + 1:02d}"):
-            mlflow.log_param("iteration", iteration + 1)
-            mlflow.log_param("rationale", rationale)
-            mlflow.log_param("ev_threshold", config.get("ev_threshold", 1.0))
-            if config.get("win_params"):
-                for k, v in config["win_params"].items():
-                    mlflow.log_param(k, v)
-            if config.get("feature_subset"):
-                mlflow.log_param("feature_subset", json.dumps(config["feature_subset"]))
-
-            summary = run_experiment(config, df)
-
-            mlflow.log_metrics(
-                {
-                    "mean_win_auc": summary["mean_win_auc"],
-                    "mean_place_auc": summary["mean_place_auc"],
-                    "mean_win_recovery": summary["mean_win_recovery"],
-                    "mean_place_recovery": summary["mean_place_recovery"],
-                }
-            )
-
-        win_recovery = summary["mean_win_recovery"]
+        # フェーズ B: SHAP 解析
+        logger.info("[Phase B] SHAP analysis with best params...")
+        shap_summary, metrics = run_shap_analysis(df, best_params.copy())
+        shap_text = format_shap_for_claude(shap_summary, top_n=15)
         logger.info(
-            "Result: win_AUC=%.4f win_recovery=%.1f%%",
-            summary["mean_win_auc"],
-            win_recovery,
+            "Metrics: win_AUC=%.4f win_recovery=%.1f%% place_recovery=%.1f%%",
+            metrics["mean_win_auc"],
+            metrics["mean_win_recovery"],
+            metrics["mean_place_recovery"],
         )
 
-        # 改善チェック
-        if win_recovery > best_recovery:
-            best_recovery = win_recovery
-            no_improve_count = 0
-            logger.info("New best win_recovery: %.1f%%", best_recovery)
-        else:
-            no_improve_count += 1
-            logger.info("No improvement (%d / 5)", no_improve_count)
+        # フェーズ C: Claude による解釈・特徴量提案
+        logger.info("[Phase C] Claude interpretation and feature suggestions...")
+        proposal = interpret_shap_and_suggest(
+            shap_text=shap_text,
+            metrics=metrics,
+            existing_features=existing_features,
+            iteration=iteration + 1,
+        )
 
-        if no_improve_count >= 5:
-            logger.info("No improvement for 5 iterations. Stopping.")
+        logger.info("=== Claude Proposal (Iteration %d) ===", iteration + 1)
+        logger.info("Interpretation: %s", proposal.get("interpretation", ""))
+        for i, feat in enumerate(proposal.get("feature_suggestions", []), start=1):
+            logger.info(
+                "  [%d] %s — %s",
+                i,
+                feat.get("name", "?"),
+                feat.get("rationale", ""),
+            )
+            logger.info("       Computation: %s", feat.get("computation", ""))
+
+        if metrics["mean_win_recovery"] >= 100.0 and metrics["mean_win_auc"] >= 0.75:
+            logger.info("Target achieved! win_recovery=%.1f%%", metrics["mean_win_recovery"])
             break
 
-        if win_recovery >= 100.0 and summary["mean_win_auc"] >= 0.75:
-            logger.info("Target achieved! win_recovery=%.1f%%", win_recovery)
-            break
-
-    logger.info("Loop finished. Best win_recovery: %.1f%%", best_recovery)
+    logger.info("Loop finished.")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Phase 4 AIエージェント実験ループ")
-    parser.add_argument("--max-iterations", type=int, default=20, help="最大イテレーション数")
+    parser = argparse.ArgumentParser(description="Phase 4 Optuna+SHAP+Claude 実験ループ")
+    parser.add_argument("--max-iterations", type=int, default=3, help="最大イテレーション数")
+    parser.add_argument("--optuna-trials", type=int, default=50, help="Optuna 試行回数")
     args = parser.parse_args()
-    run_loop(args.max_iterations)
+    run_loop(max_iterations=args.max_iterations, optuna_trials=args.optuna_trials)
 
 
 if __name__ == "__main__":

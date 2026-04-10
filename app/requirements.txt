@@ -21,6 +21,7 @@ APScheduler==3.11.0
 
 # AI
 anthropic==0.50.0
+optuna==4.3.0
 
 # Discord
 discord.py==2.4.0
