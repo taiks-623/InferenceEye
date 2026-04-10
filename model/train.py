@@ -169,7 +169,12 @@ def compute_recovery_rate(
     label_col: str,
     ev_threshold: float = 1.0,
 ) -> float:
-    """EV > threshold で買い続けた場合の回収率（%）を計算する。"""
+    """EV > threshold で買い続けた場合の回収率（%）を計算する。
+
+    注意: odds_col に事後情報（的中馬のみ非NULL）を使うとデータリークになる。
+    単勝オッズ（win_odds）は全馬に存在するため問題ない。
+    複勝は compute_place_recovery_rate を使うこと。
+    """
     ev = df[proba_col] * df[odds_col]
     bets = df[ev > ev_threshold]
     if bets.empty:
@@ -177,6 +182,31 @@ def compute_recovery_rate(
     total_bet = len(bets)
     total_return = (bets[label_col] * bets[odds_col]).sum()
     return total_return / total_bet * 100
+
+
+def compute_place_recovery_rate(
+    df: pd.DataFrame,
+    proba_col: str,
+    label_col: str,
+    place_odds_col: str = "place_odds",
+    proba_threshold: float = 0.3,
+) -> float:
+    """複勝回収率を計算する。
+
+    place_odds は実際に複勝圏に入った馬にしか設定されないため、
+    EV フィルタは使えない（データリーク）。
+    代わりに確率閾値で買い目を決め、実際の払戻で計算する。
+
+    Args:
+        proba_threshold: この確率以上の馬を買う（デフォルト 30%）
+    """
+    bets = df[df[proba_col] > proba_threshold].copy()
+    if bets.empty:
+        return float("nan")
+    total_bet = len(bets)
+    # 複勝圏に入った場合は place_odds 倍の払戻、圏外は 0
+    returns = bets[label_col] * bets[place_odds_col].fillna(0)
+    return returns.sum() / total_bet * 100
 
 
 def walk_forward_validation(
@@ -239,9 +269,9 @@ def walk_forward_validation(
         win_auc = roc_auc_score(val_df["win_label"], val_df["win_proba_raw"])
         place_auc = roc_auc_score(val_df["place_label"], val_df["place_proba_raw"])
 
-        # 回収率
+        # 回収率（単勝: EV閾値、複勝: 確率閾値）
         win_recovery = compute_recovery_rate(val_df, "win_proba", "win_odds", "win_label")
-        place_recovery = compute_recovery_rate(val_df, "place_proba", "place_odds", "place_label")
+        place_recovery = compute_place_recovery_rate(val_df, "place_proba", "place_label")
 
         step = {
             "val_year": val_year,
