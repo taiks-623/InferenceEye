@@ -84,14 +84,20 @@ def suggest_next_experiment(
         for h in history[-20:]:  # 直近20件
             metrics = h.get("metrics", {})
             params = h.get("params", {})
+            # mean_win_auc / mean_win_recovery がない run（nested step など）はスキップ
+            win_auc = metrics.get("mean_win_auc")
+            win_rec = metrics.get("mean_win_recovery")
+            if win_auc is None or win_rec is None:
+                continue
             history_text += (
                 f"- run: {h['run_name']}\n"
                 f"  params: num_leaves={params.get('num_leaves', '?')}, "
                 f"scale_pos_weight={params.get('scale_pos_weight', '?')}, "
                 f"ev_threshold={params.get('ev_threshold', '?')}\n"
-                f"  metrics: win_AUC={metrics.get('mean_win_auc', '?'):.4f}, "
-                f"win_recovery={metrics.get('mean_win_recovery', '?'):.1f}%\n"
+                f"  metrics: win_AUC={win_auc:.4f}, win_recovery={win_rec:.1f}%\n"
             )
+        if not history_text.strip().endswith("\n\n"):
+            history_text = history_text or "## 過去の実験結果\n\nまだ集計データがありません。\n"
     else:
         history_text = (
             "## 過去の実験結果\n\nまだ実験データがありません。最初の実験を提案してください。\n"
