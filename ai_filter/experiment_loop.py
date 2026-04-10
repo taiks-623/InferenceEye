@@ -55,7 +55,9 @@ def run_shap_analysis(df, best_params: dict) -> tuple[list[dict], dict]:
 
     # 全データで再学習（SHAP は全体傾向を把握するため）
     y = df["win_label"]
-    model = lgb.LGBMClassifier(**win_params, n_estimators=300, random_state=42, verbosity=-1)
+    lgb_params = {**win_params, "n_estimators": 300, "random_state": 42}
+    lgb_params.setdefault("verbosity", -1)
+    model = lgb.LGBMClassifier(**lgb_params)
     model.fit(X, y)
 
     shap_summary = compute_shap_summary(model, X)
